@@ -1,0 +1,18 @@
+# Copy to config.toml and edit. Every setting is optional; these are the defaults.
+
+plug_alias = "Humidifier"        # Kasa plug name, as set in the Kasa app
+nws_station = "KJFK"             # find yours at https://www.weather.gov (look for "Station")
+nws_contact = "https://github.com/SheinH/humidistat"  # sent to NWS in the User-Agent
+
+db_path = "humidistat.db"        # relative to this file
+
+poll_seconds = 60
+weather_refresh_seconds = 600
+weather_max_age_hours = 3.0      # older outdoor readings are ignored...
+fallback_outdoor_temp_f = 20.0   # ...and this is used instead
+
+on_margin = 5.0                  # humidifier turns on at (max humidity - on_margin)
+off_margin = 1.0                 # and off at (max humidity - off_margin)
+
+dashboard_host = "0.0.0.0"
+dashboard_port = 8080

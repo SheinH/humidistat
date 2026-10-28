@@ -1,0 +1,15 @@
+[Unit]
+Description=Humidistat humidifier controller and dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=meow
+Group=meow
+WorkingDirectory=/home/meow/humidistat
+ExecStart=/home/meow/.local/bin/uv run --script /home/meow/humidistat/humidistat.py
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
