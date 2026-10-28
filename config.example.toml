@@ -9,7 +9,11 @@ db_path = "humidistat.db"        # relative to this file
 poll_seconds = 60
 weather_refresh_seconds = 600
 weather_max_age_hours = 3.0      # older outdoor readings are ignored...
-fallback_outdoor_temp_f = 20.0   # ...and this is used instead
+fallback_outdoor_temp_f = 0.0    # ...and this is used instead (cold, to be safe)
+
+window_k = 0.5                   # how cold the window edge gets: 0 = room temp, 1 = outdoor temp.
+                                 # Raise it if window corners fog; lower it if the room feels dry.
+max_humidity_cap = 45.0          # never go above this, for comfort
 
 on_margin = 5.0                  # humidifier turns on at (max humidity - on_margin)
 off_margin = 1.0                 # and off at (max humidity - off_margin)

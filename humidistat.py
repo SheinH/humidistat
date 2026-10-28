@@ -52,7 +52,9 @@ class Config:
     poll_seconds: int = 60
     weather_refresh_seconds: int = 600  # NWS only updates about once an hour
     weather_max_age_hours: float = 3.0  # older than this, use the fallback temperature
-    fallback_outdoor_temp_f: float = 20.0
+    fallback_outdoor_temp_f: float = 0.0  # cold on purpose, so the limit errs low
+    window_k: float = 0.5  # how cold the window edge gets: 0 = room temp, 1 = outdoor temp
+    max_humidity_cap: float = 45.0  # never go above this, for comfort
     on_margin: float = 5.0  # turn on when humidity is this far below the max
     off_margin: float = 1.0  # turn off when humidity is this close to the max
     dashboard_host: str = "0.0.0.0"
@@ -75,13 +77,24 @@ def load_config(path: Path) -> Config:
 # ==============================================================================
 
 
-def max_humidity(outdoor_f: float) -> float:
-    """Highest indoor humidity (%) that won't fog double-pane windows.
+def saturation_pressure(temp_c: float) -> float:
+    """Water vapor pressure (hPa) at saturation; over ice below freezing (Magnus formula)."""
+    if temp_c >= 0:
+        return 6.112 * math.exp(17.62 * temp_c / (243.12 + temp_c))
+    return 6.112 * math.exp(22.46 * temp_c / (272.62 + temp_c))
 
-    An S-curve from 30% when it's very cold outside up to 45% when it's warm.
+
+def humidity_limit(indoor_f: float, outdoor_f: float, cfg: Config) -> tuple[float, float]:
+    """Max indoor humidity (%) before the window's coldest part fogs, and that glass temperature (°F).
+
+    The bottom edges of a window get colder than the middle. We estimate their
+    temperature as a point between room and outdoor temperature, then find the
+    humidity at which the room's dew point would reach it.
     """
-    x = max(-200.0, min(200.0, outdoor_f))  # keeps exp() in range
-    return 30.0 + 15.0 / (1.0 + math.exp(-0.09 * x))
+    glass_f = indoor_f - cfg.window_k * (indoor_f - outdoor_f)
+    to_c = lambda f: (f - 32) * 5 / 9  # noqa: E731
+    rh = 100 * saturation_pressure(to_c(glass_f)) / saturation_pressure(to_c(indoor_f))
+    return min(cfg.max_humidity_cap, rh), glass_f
 
 
 def should_be_on(is_on: bool, rh: float, max_rh: float, cfg: Config) -> bool:
@@ -263,6 +276,7 @@ class Status:
     outdoor_observed_at: datetime | None = None
     outdoor_is_fallback: bool = False
     max_rh: float | None = None
+    glass_temp_f: float | None = None  # estimated temperature of the window's coldest edge
     humidifier_on: bool | None = None  # None = plug not reachable
 
 
@@ -288,15 +302,15 @@ async def run(cfg: Config, sensor, plug: Plug, store: Store, status: Status, sto
                 outdoor = await fetch_outdoor_temp(http, cfg) or outdoor
             fresh = outdoor is not None and now - outdoor[1] < timedelta(hours=cfg.weather_max_age_hours)
             outdoor_f = outdoor[0] if fresh else cfg.fallback_outdoor_temp_f
-            max_rh = max_humidity(outdoor_f)
 
-            # Room readings.
+            # Room readings, and the humidity limit (which depends on room temperature).
             try:
                 indoor_f = sensor.temperature * 9 / 5 + 32
                 rh = sensor.relative_humidity
+                max_rh, glass_f = humidity_limit(indoor_f, outdoor_f, cfg)
             except Exception as e:
                 log.warning("Sensor read failed: %s", e)
-                indoor_f = rh = None
+                indoor_f = rh = max_rh = glass_f = None
 
             # Switch the plug. No sensor reading means off, to be safe.
             is_on = await plug.is_on()
@@ -307,11 +321,12 @@ async def run(cfg: Config, sensor, plug: Plug, store: Store, status: Status, sto
                     is_on = want
                     action = "ACTIVATED" if want else "DEACTIVATED"
 
+            limits = "–" if max_rh is None else (
+                f"{max_rh:.1f}% (on ≤{max_rh - cfg.on_margin:.1f}, off ≥{max_rh - cfg.off_margin:.1f})")
             log.info(
-                "Out %s%s | In %s, %s | Max %.1f%% (on ≤%.1f, off ≥%.1f) | Plug %s | %s",
+                "Out %s%s | In %s, %s | Glass %s | Max %s | Plug %s | %s",
                 fmt(outdoor_f, "°F"), "" if fresh else " (fallback)",
-                fmt(indoor_f, "°F"), fmt(rh, "%"), max_rh,
-                max_rh - cfg.on_margin, max_rh - cfg.off_margin,
+                fmt(indoor_f, "°F"), fmt(rh, "%"), fmt(glass_f, "°F"), limits,
                 {True: "ON", False: "OFF", None: "missing"}[is_on], action,
             )
             store.log({
@@ -319,14 +334,15 @@ async def run(cfg: Config, sensor, plug: Plug, store: Store, status: Status, sto
                 "outdoor_temp_f": round(outdoor_f, 2),
                 "indoor_temp_f": round(indoor_f, 2) if indoor_f is not None else None,
                 "indoor_rh": round(rh, 2) if rh is not None else None,
-                "target_max_rh": round(max_rh, 2),
+                "target_max_rh": round(max_rh, 2) if max_rh is not None else None,
                 "humidifier_state": is_on,
                 "action_taken": action,
             })
             status.__dict__.update(
                 time=now, indoor_rh=rh, indoor_temp_f=indoor_f, outdoor_temp_f=outdoor_f,
                 outdoor_observed_at=outdoor[1] if fresh else None,
-                outdoor_is_fallback=not fresh, max_rh=max_rh, humidifier_on=is_on,
+                outdoor_is_fallback=not fresh, max_rh=max_rh, glass_temp_f=glass_f,
+                humidifier_on=is_on,
             )
 
             wait = max(0.0, cfg.poll_seconds - (time.monotonic() - started))
@@ -444,14 +460,16 @@ def render_page(s: Status, rows: list[tuple], cfg: Config) -> str:
             outdoor = f"{fmt(s.outdoor_temp_f, '°F')} (no recent reading from {escape(cfg.nws_station)}, using fallback)"
         else:
             outdoor = f"{fmt(s.outdoor_temp_f, '°F')} ({escape(cfg.nws_station)}, as of {local_time(s.outdoor_observed_at)})"
-        limit = (f"{s.max_rh:.1f}% (turns on below {s.max_rh - cfg.on_margin:.1f}%, "
-                 f"off at {s.max_rh - cfg.off_margin:.1f}%)")
+        limit = "–" if s.max_rh is None else (
+            f"{s.max_rh:.1f}% (turns on below {s.max_rh - cfg.on_margin:.1f}%, "
+            f"off at {s.max_rh - cfg.off_margin:.1f}%)")
         summary = (
             f'<p class="muted">Updated {local_time(s.time)} · refreshes every minute</p><table>'
             f"<tr><th>Room humidity</th><td>{fmt(s.indoor_rh, '%')}</td></tr>"
             f"<tr><th>Room temperature</th><td>{fmt(s.indoor_temp_f, '°F')}</td></tr>"
             f"<tr><th>Humidifier</th><td>{plug}</td></tr>"
             f"<tr><th>Outdoor temperature</th><td>{outdoor}</td></tr>"
+            f"<tr><th>Window edge (estimate)</th><td>{fmt(s.glass_temp_f, '°F')}</td></tr>"
             f"<tr><th>Max humidity</th><td>{limit}</td></tr></table>"
         )
 

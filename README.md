@@ -31,7 +31,10 @@ Update: `git pull && sudo systemctl restart humidistat`.
 
 ## How it decides
 
-The max humidity follows an S-curve from 30% (very cold outside) to 45% (warm).
+Windows fog when the glass is colder than the room air's dew point. The coldest
+part is the bottom edge, which sits about halfway between room and outdoor
+temperature on a normal double-pane window (`window_k = 0.5`). The max humidity is
+the level where the room's dew point would reach that temperature, capped at 45%.
 The humidifier turns on when the room is 5 points below the max and off 1 point
 below it. If the sensor fails it turns the humidifier off; if the plug can't be
 found it keeps searching every minute.
