@@ -4,6 +4,7 @@
 #     "adafruit-blinka",
 #     "adafruit-circuitpython-hdc302x",
 #     "aiohttp",
+#     "gpiod>=2.2.2,<3",  # GPIO library that Blinka needs on the Pi
 #     "python-kasa",
 # ]
 # ///
