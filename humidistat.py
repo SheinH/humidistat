@@ -362,7 +362,7 @@ def fmt(value: float | None, unit: str) -> str:
 
 CSS = """
 :root { color-scheme: light; }
-:root { --gray-200: #cccccc; --table-border: #d0d0d0; }
+:root { --table-border: #d0d0d0; }
 body { margin: 0; background: #fff; color: black; font-family: system-ui; line-height: 1.5; }
 @media print { body { font-size: 80%; } }
 main { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
@@ -372,13 +372,13 @@ h2 { font-size: 1.5em; }
 p { margin: 0 0 16px; }
 table { overflow: hidden; width: 100%; margin: .25rem auto 16px; border-collapse: separate;
   border-spacing: 0; border-radius: .5rem; table-layout: auto; text-indent: 0; }
-th { padding: .25rem .75rem; border-top: 1px solid var(--gray-200); border-bottom: 1px solid var(--gray-200);
-  background-color: var(--gray-200); font-weight: 700; text-align: center; vertical-align: middle; }
-th:first-child { border-left: 1px solid var(--gray-200); border-top-left-radius: .5rem; }
-th:last-child { border-right: 1px solid var(--gray-200); border-top-right-radius: .5rem; }
 td { padding: .25rem .75rem; border-bottom: 1px solid var(--table-border); border-left: 1px solid var(--table-border);
   text-align: left; vertical-align: middle; overflow-wrap: anywhere; }
+td:first-child { font-weight: 600; }
 td:last-child { border-right: 1px solid var(--table-border); }
+tbody tr:first-child td { border-top: 1px solid var(--table-border); }
+tbody tr:first-child td:first-child { border-top-left-radius: .5rem; }
+tbody tr:first-child td:last-child { border-top-right-radius: .5rem; }
 tbody tr:last-child td:first-child { border-bottom-left-radius: .5rem; }
 tbody tr:last-child td:last-child { border-bottom-right-radius: .5rem; }
 .muted { color: #59636e; font-size: 14px; }
@@ -495,7 +495,7 @@ def render_page(s: Status, rows: list[tuple], cfg: Config) -> str:
             f"off at {s.max_rh - cfg.off_margin:.1f}%)")
         summary = (
             f'<p class="muted updated">Updated {local_time(s.time)} · refreshes every minute</p>'
-            f'<table><thead><tr><th colspan="2">Right now</th></tr></thead><tbody>'
+            f'<table><tbody>'
             f"<tr><td>Room humidity</td><td>{fmt(s.indoor_rh, '%')}</td></tr>"
             f"<tr><td>Room temperature</td><td>{fmt(s.indoor_temp_f, '°F')}</td></tr>"
             f"<tr><td>Humidifier</td><td>{plug}</td></tr>"
