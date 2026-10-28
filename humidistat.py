@@ -362,20 +362,27 @@ def fmt(value: float | None, unit: str) -> str:
 
 CSS = """
 :root { color-scheme: light; }
-body { margin: 0; background: #fff; color: #1f2328; line-height: 1.5;
-  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif; }
+:root { --gray-200: #cccccc; --table-border: #d0d0d0; }
+body { margin: 0; background: #fff; color: black; font-family: system-ui; line-height: 1.5; }
+@media print { body { font-size: 80%; } }
 main { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
 h1, h2 { font-weight: 600; padding-bottom: .3em; border-bottom: 1px solid #d1d9e0; margin: 24px 0 16px; }
-h1 { font-size: 2em; margin-top: 0; }
+h1 { font-size: 2em; margin-top: 0; text-align: center; text-wrap: balance; }
 h2 { font-size: 1.5em; }
 p { margin: 0 0 16px; }
-table { border-collapse: collapse; padding: 0; word-break: initial; display: block;
-  width: max-content; max-width: 100%; overflow: auto; margin: 0 auto 16px; }
-tr { border: 1px solid #dfe2e5; margin: 0; padding: 0; }
-tr:nth-child(2n), thead { background-color: #f8f8f8; }
-th { font-weight: bold; border: 1px solid #dfe2e5; border-bottom: 0; margin: 0; padding: 6px 13px; text-align: left; }
-td { border: 1px solid #dfe2e5; margin: 0; padding: 6px 13px; }
+table { overflow: hidden; width: 100%; margin: .25rem auto 16px; border-collapse: separate;
+  border-spacing: 0; border-radius: .5rem; table-layout: auto; text-indent: 0; }
+th { padding: .25rem .75rem; border-top: 1px solid var(--gray-200); border-bottom: 1px solid var(--gray-200);
+  background-color: var(--gray-200); font-weight: 700; text-align: center; vertical-align: middle; }
+th:first-child { border-left: 1px solid var(--gray-200); border-top-left-radius: .5rem; }
+th:last-child { border-right: 1px solid var(--gray-200); border-top-right-radius: .5rem; }
+td { padding: .25rem .75rem; border-bottom: 1px solid var(--table-border); border-left: 1px solid var(--table-border);
+  text-align: left; vertical-align: middle; overflow-wrap: anywhere; }
+td:last-child { border-right: 1px solid var(--table-border); }
+tbody tr:last-child td:first-child { border-bottom-left-radius: .5rem; }
+tbody tr:last-child td:last-child { border-bottom-right-radius: .5rem; }
 .muted { color: #59636e; font-size: 14px; }
+.updated { text-align: center; }
 figure { margin: 24px 0 36px; text-align: center; }
 figcaption { font-weight: 600; font-size: 1.1em; margin-bottom: 8px; }
 figure svg { display: block; width: 100%; max-width: 640px; height: auto; margin: 0 auto; }
@@ -487,13 +494,14 @@ def render_page(s: Status, rows: list[tuple], cfg: Config) -> str:
             f"{s.max_rh:.1f}% (turns on below {s.max_rh - cfg.on_margin:.1f}%, "
             f"off at {s.max_rh - cfg.off_margin:.1f}%)")
         summary = (
-            f'<p class="muted">Updated {local_time(s.time)} · refreshes every minute</p><table>'
-            f"<tr><th>Room humidity</th><td>{fmt(s.indoor_rh, '%')}</td></tr>"
-            f"<tr><th>Room temperature</th><td>{fmt(s.indoor_temp_f, '°F')}</td></tr>"
-            f"<tr><th>Humidifier</th><td>{plug}</td></tr>"
-            f"<tr><th>Outdoor temperature</th><td>{outdoor}</td></tr>"
-            f"<tr><th>Window edge (estimate)</th><td>{fmt(s.glass_temp_f, '°F')}</td></tr>"
-            f"<tr><th>Max humidity</th><td>{limit}</td></tr></table>"
+            f'<p class="muted updated">Updated {local_time(s.time)} · refreshes every minute</p>'
+            f'<table><thead><tr><th colspan="2">Right now</th></tr></thead><tbody>'
+            f"<tr><td>Room humidity</td><td>{fmt(s.indoor_rh, '%')}</td></tr>"
+            f"<tr><td>Room temperature</td><td>{fmt(s.indoor_temp_f, '°F')}</td></tr>"
+            f"<tr><td>Humidifier</td><td>{plug}</td></tr>"
+            f"<tr><td>Outdoor temperature</td><td>{outdoor}</td></tr>"
+            f"<tr><td>Window edge (estimate)</td><td>{fmt(s.glass_temp_f, '°F')}</td></tr>"
+            f"<tr><td>Max humidity</td><td>{limit}</td></tr></tbody></table>"
         )
 
     times = [datetime.fromisoformat(r[0]).astimezone() for r in rows]
