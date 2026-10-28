@@ -368,22 +368,26 @@ main { max-width: 760px; margin: 0 auto; padding: 32px 16px; }
 h1, h2 { font-weight: 600; padding-bottom: .3em; border-bottom: 1px solid #d1d9e0; margin: 24px 0 16px; }
 h1 { font-size: 2em; margin-top: 0; }
 h2 { font-size: 1.5em; }
-h3 { font-size: 1.25em; font-weight: 600; margin: 24px 0 8px; }
 p { margin: 0 0 16px; }
 table { border-collapse: collapse; margin-bottom: 16px; display: block; max-width: 100%; overflow: auto; }
 th, td { border: 1px solid #d1d9e0; padding: 6px 13px; text-align: left; }
 th { font-weight: 600; }
 tr:nth-child(2n) { background: #f6f8fa; }
 .muted { color: #59636e; font-size: 14px; }
-svg { display: block; width: 100%; max-width: 600px; height: auto; }
-.key { display: inline-block; margin-right: 16px; }
-.key i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 6px; }
-.key i.band { height: 10px; }
+figure { margin: 24px 0 36px; text-align: center; }
+figcaption { font-weight: 600; font-size: 1.1em; margin-bottom: 8px; }
+figure svg { display: block; width: 100%; max-width: 640px; height: auto; margin: 0 auto; }
+.legend { margin-top: 8px; font-size: 14px; color: #59636e; }
+.key { display: inline-block; margin: 0 10px; white-space: nowrap; }
+.key i { display: inline-block; width: 16px; height: 0; border-top: 3px solid var(--c);
+  vertical-align: middle; margin-right: 6px; }
+.key i.dash { border-top-style: dashed; border-top-width: 2px; }
+.key i.band { height: 12px; border: 0; background: var(--c); opacity: .2; }
 """
 
-# Chart colors (soft, but easy to tell apart).
-HUMIDITY, LIMIT, ON_BAND = "#4f8fdc", "#e48a8a", "#e4eefb"
-ROOM_TEMP, OUTDOOR_TEMP = "#e8954a", "#7fb58a"
+# Chart colors.
+HUMIDITY, LIMIT, ON_BAND = "#3b82f6", "#ef4444", "#14b8a6"
+ROOM_TEMP, OUTDOOR_TEMP = "#f97316", "#10b981"
 
 
 def nice_step(span: float) -> float:
@@ -394,8 +398,8 @@ def nice_step(span: float) -> float:
 
 
 def svg_chart(start: datetime, end: datetime, series: list, unit: str, bands=(), gap=timedelta(minutes=5)) -> str:
-    """Line chart as inline SVG. series = [(times, values, color, dashed)]."""
-    W, H, L, R, T, B = 480, 170, 40, 8, 8, 22
+    """Line chart as inline SVG. series = [(times, values, color, style)], style is "fill", "dash" or ""."""
+    W, H, L, R, T, B = 560, 200, 42, 12, 10, 24
     values = [v for _, vs, _, _ in series for v in vs if v is not None]
     if not values:
         return '<p class="muted">No data yet.</p>'
@@ -404,44 +408,61 @@ def svg_chart(start: datetime, end: datetime, series: list, unit: str, bands=(),
     if hi == lo:
         hi = lo + step
     span = (end - start).total_seconds()
+    bottom = H - B
 
     def x(t):
         return L + (t - start).total_seconds() / span * (W - L - R)
 
     def y(v):
-        return T + (hi - v) / (hi - lo) * (H - T - B)
+        return T + (hi - v) / (hi - lo) * (bottom - T)
 
-    out = [f'<svg viewBox="0 0 {W} {H}" font-size="12" fill="#59636e">']
+    out = [f'<svg viewBox="0 0 {W} {H}" font-size="12" fill="#6e7781">']
     for a, b in bands:
-        out.append(f'<rect x="{x(a):.1f}" y="{T}" width="{max(x(b) - x(a), 1):.1f}" height="{H - T - B}" fill="{ON_BAND}"/>')
+        out.append(f'<rect x="{x(a):.1f}" y="{T}" width="{max(x(b) - x(a), 1):.1f}" '
+                   f'height="{bottom - T}" fill="{ON_BAND}" fill-opacity=".15"/>')
     v = lo
     while v <= hi + step / 2:
-        out.append(f'<line x1="{L}" x2="{W - R}" y1="{y(v):.1f}" y2="{y(v):.1f}" stroke="#eaeef2"/>')
-        out.append(f'<text x="{L - 6}" y="{y(v) + 4:.1f}" text-anchor="end">{v:g}{unit}</text>')
+        out.append(f'<line x1="{L}" x2="{W - R}" y1="{y(v):.1f}" y2="{y(v):.1f}" stroke="#eef0f3"/>')
+        out.append(f'<text x="{L - 8}" y="{y(v) + 4:.1f}" text-anchor="end">{v:g}{unit}</text>')
         v += step
+    out.append(f'<line x1="{L}" x2="{W - R}" y1="{bottom}" y2="{bottom}" stroke="#d0d7de"/>')
     t = start.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     while t <= end:
         if t.hour % 6 == 0:
-            label = t.strftime("%-I %p")
-            out.append(f'<text x="{x(t):.1f}" y="{H - 5}" text-anchor="middle">{label}</text>')
+            out.append(f'<text x="{x(t):.1f}" y="{H - 5}" text-anchor="middle">{t.strftime("%-I %p")}</text>')
         t += timedelta(hours=1)
-    for times, vs, color, dashed in series:
-        d, prev = [], None
+
+    for times, vs, color, style in series:
+        # Split into segments wherever data is missing.
+        segs, prev = [], None
         for t, v in zip(times, vs):
             if v is None:
                 prev = None
                 continue
-            d.append(f'{"L" if prev and t - prev <= gap else "M"}{x(t):.1f},{y(v):.1f}')
+            if prev is None or t - prev > gap:
+                segs.append([])
+            segs[-1].append((x(t), y(v)))
             prev = t
-        dash = ' stroke-dasharray="5 4"' if dashed else ""
-        out.append(f'<path d="{"".join(d)}" fill="none" stroke="{color}" stroke-width="1.75" stroke-linejoin="round"{dash}/>')
+        if style == "fill":
+            grad = f"g{color[1:]}"
+            out.append(f'<defs><linearGradient id="{grad}" x1="0" y1="0" x2="0" y2="1">'
+                       f'<stop offset="0" stop-color="{color}" stop-opacity=".25"/>'
+                       f'<stop offset="1" stop-color="{color}" stop-opacity="0"/></linearGradient></defs>')
+            for seg in segs:
+                pts = "L".join(f"{px:.1f},{py:.1f}" for px, py in seg)
+                out.append(f'<path d="M{seg[0][0]:.1f},{bottom}L{pts}L{seg[-1][0]:.1f},{bottom}Z" fill="url(#{grad})"/>')
+        dash = ' stroke-dasharray="6 4" stroke-width="1.5"' if style == "dash" else ' stroke-width="2"'
+        d = "".join("M" + "L".join(f"{px:.1f},{py:.1f}" for px, py in seg) for seg in segs)
+        out.append(f'<path d="{d}" fill="none" stroke="{color}" stroke-linejoin="round" stroke-linecap="round"{dash}/>')
     out.append("</svg>")
     return "".join(out)
 
 
-def legend(*items: tuple[str, str, str]) -> str:
-    return "<p>" + "".join(f'<span class="key"><i class="{c}" style="background:{color}"></i>{label}</span>'
-                           for label, color, c in items) + "</p>"
+def figure(title: str, chart: str, *keys: tuple[str, str, str]) -> str:
+    """A centered chart with its title and legend. keys = [(label, color, "" | "dash" | "band")]."""
+    legend = "".join(f'<span class="key"><i class="{kind}" style="--c:{color}"></i>{label}</span>'
+                     for label, color, kind in keys)
+    return f'<figure><figcaption>{title}</figcaption>{chart}<div class="legend">{legend}</div></figure>'
 
 
 def local_time(t: datetime) -> str:
@@ -484,8 +505,16 @@ def render_page(s: Status, rows: list[tuple], cfg: Config) -> str:
             bands.append((band_start, t + timedelta(seconds=cfg.poll_seconds)))
             band_start = None
 
-    humidity = svg_chart(start, end, [(times, col(1), HUMIDITY, False), (times, col(4), LIMIT, True)], "%", bands, gap)
-    temps = svg_chart(start, end, [(times, col(3), OUTDOOR_TEMP, False), (times, col(2), ROOM_TEMP, False)], "°", (), gap)
+    humidity = figure(
+        "Humidity",
+        svg_chart(start, end, [(times, col(1), HUMIDITY, "fill"), (times, col(4), LIMIT, "dash")], "%", bands, gap),
+        ("Room", HUMIDITY, ""), ("Max", LIMIT, "dash"), ("Humidifier on", ON_BAND, "band"),
+    )
+    temps = figure(
+        "Temperature",
+        svg_chart(start, end, [(times, col(2), ROOM_TEMP, ""), (times, col(3), OUTDOOR_TEMP, "")], "°F", (), gap),
+        ("Room", ROOM_TEMP, ""), ("Outdoor", OUTDOOR_TEMP, ""),
+    )
 
     return f"""<!doctype html>
 <html lang="en">
@@ -500,12 +529,8 @@ def render_page(s: Status, rows: list[tuple], cfg: Config) -> str:
 <h1>Humidistat</h1>
 {summary}
 <h2>Last 24 hours</h2>
-<h3>Humidity</h3>
 {humidity}
-{legend(("Room humidity", HUMIDITY, ""), ("Max humidity", LIMIT, ""), ("Humidifier on", ON_BAND, "band"))}
-<h3>Temperature</h3>
 {temps}
-{legend(("Room", ROOM_TEMP, ""), ("Outdoor", OUTDOOR_TEMP, ""))}
 </main></body>
 </html>"""
 
