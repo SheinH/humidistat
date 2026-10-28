@@ -369,10 +369,12 @@ h1, h2 { font-weight: 600; padding-bottom: .3em; border-bottom: 1px solid #d1d9e
 h1 { font-size: 2em; margin-top: 0; }
 h2 { font-size: 1.5em; }
 p { margin: 0 0 16px; }
-table { border-collapse: collapse; margin-bottom: 16px; display: block; max-width: 100%; overflow: auto; }
-th, td { border: 1px solid #d1d9e0; padding: 6px 13px; text-align: left; }
-th { font-weight: 600; }
-tr:nth-child(2n) { background: #f6f8fa; }
+table { border-collapse: collapse; padding: 0; word-break: initial; display: block;
+  width: max-content; max-width: 100%; overflow: auto; margin: 0 auto 16px; }
+tr { border: 1px solid #dfe2e5; margin: 0; padding: 0; }
+tr:nth-child(2n), thead { background-color: #f8f8f8; }
+th { font-weight: bold; border: 1px solid #dfe2e5; border-bottom: 0; margin: 0; padding: 6px 13px; text-align: left; }
+td { border: 1px solid #dfe2e5; margin: 0; padding: 6px 13px; }
 .muted { color: #59636e; font-size: 14px; }
 figure { margin: 24px 0 36px; text-align: center; }
 figcaption { font-weight: 600; font-size: 1.1em; margin-bottom: 8px; }
