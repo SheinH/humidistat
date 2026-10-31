@@ -147,7 +147,7 @@ class Store:
     def history(self, since: datetime) -> list[tuple]:
         return self.db.execute(
             "SELECT timestamp, indoor_rh, indoor_temp_f, outdoor_temp_f, target_max_rh, "
-            "humidifier_state FROM telemetry_log WHERE timestamp >= ? ORDER BY timestamp",
+            "humidifier_state, action_taken FROM telemetry_log WHERE timestamp >= ? ORDER BY timestamp",
             (since.astimezone(timezone.utc).isoformat(),),
         ).fetchall()
 
@@ -545,16 +545,90 @@ def render_page(s: Status, rows: list[tuple], cfg: Config) -> str:
 </html>"""
 
 
+HISTORY_POINTS = 600  # most points /api/history returns; longer ranges are averaged
+
+
+def parse_time(ts: str) -> datetime:
+    """Row timestamp as an aware datetime. Rows from the old database have no zone and are local time."""
+    t = datetime.fromisoformat(ts)
+    return t if t.tzinfo else t.astimezone()
+
+
+def mean(xs: list) -> float | None:
+    xs = [x for x in xs if x is not None]
+    return round(sum(xs) / len(xs), 2) if xs else None
+
+
+def summarize_history(rows: list[tuple], start: datetime, end: datetime, cfg: Config) -> dict:
+    """Readings averaged into at most HISTORY_POINTS time buckets, plus totals for the whole range."""
+    size = max(cfg.poll_seconds, math.ceil((end - start).total_seconds() / HISTORY_POINTS))
+    t0 = start.timestamp()
+    readings = [(parse_time(r[0]).timestamp(), *r[1:]) for r in rows]
+    readings = [r for r in readings if r[0] >= t0]
+
+    buckets: dict[int, list[tuple]] = {}
+    for r in readings:
+        buckets.setdefault(int((r[0] - t0) // size), []).append(r)
+    points = []
+    for _, group in sorted(buckets.items()):
+        t, rh, temp, outdoor, max_rh, on, _action = zip(*group)
+        rhs = [x for x in rh if x is not None]
+        points.append({
+            "t": round(sum(t) / len(t)),
+            "rh": mean(rh), "rh_lo": min(rhs, default=None), "rh_hi": max(rhs, default=None),
+            "temp": mean(temp), "outdoor": mean(outdoor), "max_rh": mean(max_rh),
+            "on": mean([None if x is None else float(x) for x in on]),  # fraction of the bucket
+        })
+
+    rh = [r[1] for r in readings if r[1] is not None]
+    outdoor = [r[3] for r in readings if r[3] is not None]
+    on = [r[5] for r in readings if r[5] is not None]
+    judged = [(r[1], r[4]) for r in readings if r[1] is not None and r[4] is not None]
+    return {
+        "start": round(t0), "end": round(end.timestamp()), "bucket_seconds": size,
+        "points": points,
+        "summary": {
+            "readings": len(readings),
+            "rh_avg": mean(rh), "rh_min": min(rh, default=None), "rh_max": max(rh, default=None),
+            "temp_avg": mean([r[2] for r in readings]),
+            "outdoor_min": min(outdoor, default=None), "outdoor_max": max(outdoor, default=None),
+            "on_fraction": sum(on) / len(on) if on else None,
+            "on_hours": round(sum(on) * cfg.poll_seconds / 3600, 1),
+            "activations": sum(r[6] == "ACTIVATED" for r in readings),
+            "above_max_fraction": sum(a > b for a, b in judged) / len(judged) if judged else None,
+        },
+    }
+
+
 def make_app(status: Status, store: Store, cfg: Config) -> web.Application:
     async def page(_):
         rows = store.history(datetime.now(timezone.utc) - timedelta(hours=24))
         return web.Response(text=render_page(status, rows, cfg), content_type="text/html")
 
     async def api_status(_):
-        return web.json_response(asdict(status), dumps=lambda o: json.dumps(o, default=str))
+        settings = {k: getattr(cfg, k) for k in ("nws_station", "on_margin", "off_margin", "max_humidity_cap")}
+        return web.json_response(asdict(status) | settings, dumps=lambda o: json.dumps(o, default=str))
+
+    async def api_history(request):
+        """?hours=N (default 24) or ?hours=all."""
+        now = datetime.now(timezone.utc)
+        hours = request.query.get("hours", "24")
+        if hours == "all":
+            rows = store.history(datetime.min.replace(tzinfo=timezone.utc))
+            start = parse_time(rows[0][0]) if rows else now
+        else:
+            try:
+                h = float(hours)
+            except ValueError:
+                raise web.HTTPBadRequest(text="hours must be a number or 'all'")
+            if not 0 < h <= 24 * 366 * 10:
+                raise web.HTTPBadRequest(text="hours out of range")
+            start = now - timedelta(hours=h)
+            rows = store.history(start)
+        return web.json_response(summarize_history(rows, start, now, cfg))
 
     app = web.Application()
-    app.add_routes([web.get("/", page), web.get("/api/status", api_status)])
+    app.add_routes([web.get("/", page), web.get("/api/status", api_status), web.get("/api/history", api_history)])
     return app
 
 
