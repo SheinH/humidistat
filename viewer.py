@@ -408,7 +408,6 @@ class Readout(QGroupBox):
         for name in rows:
             v = QLabel("–")
             v.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            v.setWordWrap(True)
             form.addRow(name + ":", v)
             self.values[name] = v
 
@@ -447,8 +446,9 @@ class Window(QWidget):
             top.addWidget(b)
         QShortcut(QKeySequence.StandardKey.Refresh, self, activated=self.refresh)
 
-        self.now = Readout("Now", ["Room humidity", "Max humidity", "Humidifier", "Room temperature",
-                                   "Room dew point", "Window edge (est.)", "Outdoor temperature"])
+        self.now = Readout("Now", ["Room humidity", "Max humidity", "Humidifier", "Switches on / off at",
+                                   "Room temperature", "Room dew point", "Window edge (est.)",
+                                   "Outdoor temperature"])
         self.summary = Readout("", ["Average humidity", "Humidity range", "Above max", "Humidifier on",
                                     "Humidifier starts", "Outdoor range"])
         boxes = QHBoxLayout()
@@ -510,23 +510,24 @@ class Window(QWidget):
 
         self.now.set("Room humidity", fmt(rh, "%") + (" (above max)" if None not in (rh, max_rh) and rh > max_rh else ""))
         self.now.set("Max humidity", fmt(max_rh, "%"))
-        plug = {True: "On", False: "Off", None: "Plug not found"}[s.get("humidifier_on")]
-        if on_at is not None:
-            plug += f" (turns on below {on_at:.1f}%, off at {off_at:.1f}%)"
-        self.now.set("Humidifier", plug)
+        self.now.set("Humidifier", {True: "On", False: "Off", None: "Plug not found"}[s.get("humidifier_on")])
+        self.now.set("Switches on / off at", "–" if on_at is None else f"{on_at:.1f}% / {off_at:.1f}%")
         self.now.set("Room temperature", fmt(temp, "°F"))
         dew = dew_point_f(temp, rh) if None not in (temp, rh) else None
         self.now.set("Room dew point", fmt(dew, "°F"))
         glass = s.get("glass_temp_f")
-        margin = f" ({glass - dew:.1f}°F above dew point)" if None not in (glass, dew) else ""
-        self.now.set("Window edge (est.)", fmt(glass, "°F") + margin)
+        self.now.set("Window edge (est.)", fmt(glass, "°F"))
+        if None not in (glass, dew):
+            self.now.values["Window edge (est.)"].setToolTip(f"{glass - dew:.1f}°F above the room's dew point")
         station = s.get("nws_station", "NWS")
         observed = parse_time(s.get("outdoor_observed_at"))
+        out = self.now.values["Outdoor temperature"]
         if s.get("outdoor_is_fallback"):
-            outdoor = f"{fmt(s.get('outdoor_temp_f'), '°F')} (no recent {station} reading, using fallback)"
+            out.setText(f"{fmt(s.get('outdoor_temp_f'), '°F')} (fallback)")
+            out.setToolTip(f"No recent reading from {station}, so a cold default is used")
         else:
-            outdoor = fmt(s.get("outdoor_temp_f"), "°F") + (f" ({station}, {clock(observed)})" if observed else "")
-        self.now.set("Outdoor temperature", outdoor)
+            out.setText(f"{fmt(s.get('outdoor_temp_f'), '°F')} at {station}")
+            out.setToolTip(f"Observed {clock(observed)}" if observed else "")
 
         self.newest = parse_time(s.get("time"))
         self.update_notice()
@@ -541,10 +542,8 @@ class Window(QWidget):
         self.summary.set("Average humidity", fmt(sm["rh_avg"], "%"))
         self.summary.set("Humidity range", "–" if sm["rh_min"] is None else f"{sm['rh_min']:.1f}–{sm['rh_max']:.1f}%")
         self.summary.set("Above max", pct(sm["above_max_fraction"]))
-        on = pct(sm["on_fraction"])
-        if sm["on_fraction"]:
-            on += f" ({sm['on_hours']:g} h)"
-        self.summary.set("Humidifier on", on)
+        self.summary.set("Humidifier on", pct(sm["on_fraction"]))
+        self.summary.values["Humidifier on"].setToolTip(f"{sm['on_hours']:g} hours in total")
         self.summary.set("Humidifier starts", f"{sm['activations']:,}")
         self.summary.set("Outdoor range",
                          "–" if sm["outdoor_min"] is None else f"{sm['outdoor_min']:.1f}–{sm['outdoor_max']:.1f}°F")

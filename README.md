@@ -29,6 +29,18 @@ journalctl -u humidistat -f
 
 Update: `git pull && sudo systemctl restart humidistat`.
 
+## Desktop viewer
+
+`viewer.py` is a Qt window that shows current readings and history (6 hours to all
+time) from the Pi. Run it on any computer on the same network:
+
+```sh
+uv run viewer.py                              # or: --url http://<pi>:8080
+```
+
+Hover a chart to see values; ⌘1–⌘5 (Ctrl on Linux/Windows) switch the range. It
+uses `/api/status` and `/api/history?hours=N|all`.
+
 ## How it decides
 
 Windows fog when the glass is colder than the room air's dew point. The coldest
